@@ -1,0 +1,940 @@
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.MathContext;
+import java.math.RoundingMode;
+
+// Precision settings
+final int DIGITS = 5000;
+final int GUARD = 50;
+final MathContext WORK_MC =
+  new MathContext(DIGITS + GUARD, RoundingMode.HALF_EVEN);
+
+String sequenceInput = "771872";
+String surdInput = "67^(1/2)";
+String outputText = "Ready.";
+
+boolean searching = false;
+int activeBox = 0;
+
+// Keypad
+float keypadX = 700, keypadY = 120;
+boolean dragging = false;
+float dragOffsetX, dragOffsetY;
+
+String[] keys = {
+  "7","8","9",
+  "4","5","6",
+  "1","2","3",
+  "0",".","^",
+  "(" ,")","/",
+  "+","-","BS"
+};
+
+void setup() {
+  size(1300, 950);
+  textSize(20);
+  textAlign(LEFT, CENTER);
+}
+
+void draw() {
+
+  background(0);
+
+  fill(255);
+  text("UNIVERSAL SURD DIGIT SEARCH ENGINE", 40, 50);
+
+  // Sequence box
+  fill(activeBox==1 ? color(60,60,120) : 40);
+  rect(40, 100, 500, 60);
+
+  fill(255);
+  text("Sequence:", 50, 90);
+  text(sequenceInput, 55, 140);
+
+  // Expression box
+  fill(activeBox==2 ? color(60,60,120) : 40);
+  rect(40, 220, 500, 60);
+
+  fill(255);
+  text("Surd / Expression:", 50, 210);
+  text(surdInput, 55, 260);
+
+  // Search button
+  fill(0,180,0);
+  rect(40,330,260,70);
+
+  fill(255);
+  text("START SEARCH", 85, 375);
+
+  // Output
+  fill(0,255,0);
+  text(outputText, 40, 470);
+
+  drawKeypad();
+}
+
+void drawKeypad() {
+
+  fill(50);
+  rect(keypadX - 20, keypadY - 50, 320, 430);
+
+  fill(255);
+  text("DRAG KEYPAD", keypadX + 60, keypadY - 20);
+
+  int index = 0;
+
+  for(int r=0; r<6; r++) {
+    for(int c=0; c<3; c++) {
+
+      float x = keypadX + c*90;
+      float y = keypadY + r*60;
+
+      fill(80);
+      rect(x, y, 80, 50);
+
+      fill(255);
+      text(keys[index], x+28, y+32);
+
+      index++;
+    }
+  }
+}
+
+void mousePressed() {
+
+  // Text boxes
+  if(mouseX>40 && mouseX<540 &&
+     mouseY>100 && mouseY<160) {
+
+    activeBox = 1;
+  }
+  else if(mouseX>40 && mouseX<540 &&
+          mouseY>220 && mouseY<280) {
+
+    activeBox = 2;
+  }
+
+  // Search
+  if(mouseX>40 && mouseX<300 &&
+     mouseY>330 && mouseY<400) {
+
+    if(!searching) {
+      searching = true;
+      thread("runSearch");
+    }
+  }
+
+  // Drag keypad
+  if(mouseX > keypadX-20 &&
+     mouseX < keypadX+300 &&
+     mouseY > keypadY-50 &&
+     mouseY < keypadY-10) {
+
+    dragging = true;
+
+    dragOffsetX = mouseX - keypadX;
+    dragOffsetY = mouseY - keypadY;
+  }
+
+  // Keypad buttons
+  int index = 0;
+
+  for(int r=0; r<6; r++) {
+    for(int c=0; c<3; c++) {
+
+      float x = keypadX + c*90;
+      float y = keypadY + r*60;
+
+      if(mouseX>x && mouseX<x+80 &&
+         mouseY>y && mouseY<y+50) {
+
+        handleKey(keys[index]);
+      }
+
+      index++;
+    }
+  }
+}
+
+void mouseDragged() {
+
+  if(dragging) {
+    keypadX = mouseX - dragOffsetX;
+    keypadY = mouseY - dragOffsetY;
+  }
+}
+
+void mouseReleased() {
+  dragging = false;
+}
+
+void handleKey(String k) {
+
+  if(activeBox == 0) return;
+
+  if(k.equals("BS")) {
+
+    if(activeBox==1 && sequenceInput.length()>0) {
+      sequenceInput =
+        sequenceInput.substring(0,
+        sequenceInput.length()-1);
+    }
+
+    if(activeBox==2 && surdInput.length()>0) {
+      surdInput =
+        surdInput.substring(0,
+        surdInput.length()-1);
+    }
+
+    return;
+  }
+
+  if(activeBox == 1) {
+    sequenceInput += k;
+  }
+  else if(activeBox == 2) {
+    surdInput += k;
+  }
+}
+
+void runSearch() {
+
+  outputText = "";
+
+  try {
+
+    String seq = sequenceInput.trim();
+    String expr = surdInput.trim();
+
+    outputText += "Sequence:\n" + seq + "\n\n";
+    outputText += "Expression:\n" + expr + "\n\n";
+    outputText += "Computing...\n\n";
+
+    BigDecimal value =
+      evaluateExpression(expr, WORK_MC);
+
+    String rootText = value.toPlainString();
+
+    outputText +=
+      "Value:\n" +
+      shortenForDisplay(rootText, 120) +
+      "\n\n";
+
+    String digits =
+      decimalDigitsOnly(rootText);
+
+    if(seq.length()==0) {
+
+      outputText += "ENTER A SEARCH SEQUENCE.";
+    }
+    else if(digits.length()==0) {
+
+      outputText +=
+        "NO DECIMAL PART AVAILABLE.";
+    }
+    else {
+
+      int startIndex =
+        digits.indexOf(seq);
+
+      if(startIndex >= 0) {
+
+        int endIndex =
+          startIndex + seq.length() - 1;
+
+        outputText += "FOUND!\n\n";
+
+        outputText +=
+          "Start index = " +
+          startIndex + "\n";
+
+        outputText +=
+          "End index = " +
+          endIndex + "\n\n";
+
+        int contextStart =
+          max(0, startIndex - 25);
+
+        int contextEnd =
+          min(digits.length(),
+          endIndex + 26);
+
+        outputText += "Context:\n\n";
+
+        outputText +=
+          digits.substring(
+            contextStart,
+            contextEnd
+          );
+      }
+      else {
+
+        outputText +=
+          "NOT FOUND\n\n";
+
+        outputText +=
+          "Checked first " +
+          digits.length() +
+          " decimal digits.";
+      }
+    }
+  }
+  catch(Exception e) {
+
+    outputText +=
+      "ERROR:\n" + e.getMessage();
+  }
+
+  searching = false;
+}
+
+// =====================================================
+// EXPRESSION EVALUATOR
+// =====================================================
+
+String clean(String s) {
+
+  return s
+    .replace(" ", "")
+    .replace("\t","")
+    .replace("\n","")
+    .trim();
+}
+
+String stripOuterParens(String s) {
+
+  s = s.trim();
+
+  while(isWrappedByParens(s)) {
+    s = s.substring(1, s.length()-1).trim();
+  }
+
+  return s;
+}
+
+boolean isWrappedByParens(String s) {
+
+  if(s.length()<2) return false;
+
+  if(s.charAt(0)!='(' ||
+     s.charAt(s.length()-1)!=')') {
+
+    return false;
+  }
+
+  int depth = 0;
+
+  for(int i=0; i<s.length(); i++) {
+
+    char ch = s.charAt(i);
+
+    if(ch=='(') depth++;
+    else if(ch==')') depth--;
+
+    if(depth==0 &&
+       i < s.length()-1) {
+
+      return false;
+    }
+
+    if(depth < 0) return false;
+  }
+
+  return depth==0;
+}
+
+int findTopLevelPlusMinus(String s) {
+
+  int depth = 0;
+
+  for(int i=0; i<s.length(); i++) {
+
+    char ch = s.charAt(i);
+
+    if(ch=='(') depth++;
+    else if(ch==')') depth--;
+
+    else if(depth==0 &&
+           (ch=='+' || ch=='-')) {
+
+      if(i==0) continue;
+
+      char prev = s.charAt(i-1);
+
+      if(prev=='+' ||
+         prev=='-' ||
+         prev=='*' ||
+         prev=='/' ||
+         prev=='^') {
+
+        continue;
+      }
+
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+int findTopLevelMulDiv(String s) {
+
+  int depth = 0;
+
+  for(int i=0; i<s.length(); i++) {
+
+    char ch = s.charAt(i);
+
+    if(ch=='(') depth++;
+    else if(ch==')') depth--;
+
+    else if(depth==0 &&
+           (ch=='*' || ch=='/')) {
+
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+int findTopLevelPower(String s) {
+
+  int depth = 0;
+
+  for(int i=0; i<s.length(); i++) {
+
+    char ch = s.charAt(i);
+
+    if(ch=='(') depth++;
+    else if(ch==')') depth--;
+
+    else if(ch=='^' &&
+            depth==0) {
+
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+BigDecimal evaluateExpression(
+  String expr,
+  MathContext mc
+) {
+
+  expr =
+    stripOuterParens(clean(expr));
+
+  if(expr.isEmpty()) {
+
+    throw new IllegalArgumentException(
+      "Empty expression"
+    );
+  }
+
+  // + -
+  int pmPos =
+    findTopLevelPlusMinus(expr);
+
+  if(pmPos >= 0) {
+
+    char op = expr.charAt(pmPos);
+
+    BigDecimal left =
+      evaluateExpression(
+        expr.substring(0, pmPos),
+        mc
+      );
+
+    BigDecimal right =
+      evaluateExpression(
+        expr.substring(pmPos+1),
+        mc
+      );
+
+    if(op=='+') {
+      return left.add(right, mc);
+    }
+
+    return left.subtract(right, mc);
+  }
+
+  // * /
+  int mdPos =
+    findTopLevelMulDiv(expr);
+
+  if(mdPos >= 0) {
+
+    char op = expr.charAt(mdPos);
+
+    BigDecimal left =
+      evaluateExpression(
+        expr.substring(0, mdPos),
+        mc
+      );
+
+    BigDecimal right =
+      evaluateExpression(
+        expr.substring(mdPos+1),
+        mc
+      );
+
+    if(op=='*') {
+      return left.multiply(right, mc);
+    }
+
+    return left.divide(right, mc);
+  }
+
+  // sqrt(...)
+  if(expr.startsWith("sqrt(") &&
+     expr.endsWith(")")) {
+
+    BigDecimal inside =
+      evaluateExpression(
+        expr.substring(
+          5,
+          expr.length()-1
+        ),
+        mc
+      );
+
+    return nthRoot(inside, 2, mc);
+  }
+
+  // exponentiation
+  int powIndex =
+    findTopLevelPower(expr);
+
+  if(powIndex >= 0) {
+
+    BigDecimal base =
+      evaluateExpression(
+        expr.substring(0, powIndex),
+        mc
+      );
+
+    String expStr =
+      expr.substring(powIndex+1);
+
+    Fraction f =
+      parseFraction(expStr);
+
+    if(f != null) {
+
+      return powRational(
+        base,
+        f.num,
+        f.den,
+        mc
+      );
+    }
+    else {
+
+      BigInteger e =
+        new BigInteger(
+          stripOuterParens(
+            clean(expStr)
+          )
+        );
+
+      return powInt(base, e, mc);
+    }
+  }
+
+  // plain number
+  return new BigDecimal(expr, mc);
+}
+
+// =====================================================
+// SAFE BIGINTEGER -> INT
+// =====================================================
+
+int bigIntegerToIntExact(BigInteger v) {
+
+  BigInteger min =
+    BigInteger.valueOf(
+      Integer.MIN_VALUE
+    );
+
+  BigInteger max =
+    BigInteger.valueOf(
+      Integer.MAX_VALUE
+    );
+
+  if(v.compareTo(min) < 0 ||
+     v.compareTo(max) > 0) {
+
+    throw new IllegalArgumentException(
+      "Value too large for int: " + v
+    );
+  }
+
+  return v.intValue();
+}
+
+// =====================================================
+// RATIONAL POWER
+// =====================================================
+
+BigDecimal powRational(
+  BigDecimal base,
+  BigInteger num,
+  BigInteger den,
+  MathContext mc
+) {
+
+  if(den.signum() == 0) {
+
+    throw new IllegalArgumentException(
+      "Zero denominator"
+    );
+  }
+
+  if(num.signum() == 0) {
+    return BigDecimal.ONE.round(mc);
+  }
+
+  boolean negativeExponent =
+    num.signum() < 0;
+
+  num = num.abs();
+  den = den.abs();
+
+  int denInt =
+    bigIntegerToIntExact(den);
+
+  BigDecimal result;
+
+  if(base.signum() < 0) {
+
+    if(den.mod(
+      BigInteger.valueOf(2)
+      ).equals(BigInteger.ZERO)) {
+
+      throw new IllegalArgumentException(
+        "Even root of negative number is not real"
+      );
+    }
+
+    BigDecimal root =
+      nthRoot(
+        base.abs(),
+        denInt,
+        mc
+      );
+
+    if(num.mod(
+      BigInteger.valueOf(2)
+      ).equals(BigInteger.ONE)) {
+
+      root = root.negate();
+    }
+
+    result =
+      powInt(root, num, mc);
+  }
+  else {
+
+    BigDecimal root =
+      nthRoot(base, denInt, mc);
+
+    result =
+      powInt(root, num, mc);
+  }
+
+  if(negativeExponent) {
+
+    result =
+      BigDecimal.ONE.divide(
+        result,
+        mc
+      );
+  }
+
+  return result.round(mc);
+}
+
+// =====================================================
+// INTEGER POWER
+// =====================================================
+
+BigDecimal powInt(
+  BigDecimal base,
+  BigInteger exp,
+  MathContext mc
+) {
+
+  if(exp.signum() < 0) {
+
+    BigDecimal positive =
+      powInt(
+        base,
+        exp.negate(),
+        mc
+      );
+
+    return BigDecimal.ONE.divide(
+      positive,
+      mc
+    );
+  }
+
+  BigDecimal result =
+    BigDecimal.ONE;
+
+  BigDecimal factor =
+    base.round(mc);
+
+  BigInteger e = exp;
+
+  while(e.signum() > 0) {
+
+    if(e.testBit(0)) {
+
+      result =
+        result.multiply(
+          factor,
+          mc
+        );
+    }
+
+    e = e.shiftRight(1);
+
+    if(e.signum() > 0) {
+
+      factor =
+        factor.multiply(
+          factor,
+          mc
+        );
+    }
+  }
+
+  return result.round(mc);
+}
+
+// =====================================================
+// NTH ROOT
+// =====================================================
+
+BigDecimal nthRoot(
+  BigDecimal x,
+  int n,
+  MathContext mc
+) {
+
+  if(n <= 0) {
+
+    throw new IllegalArgumentException(
+      "Root index must be positive"
+    );
+  }
+
+  if(n == 1) {
+    return x.round(mc);
+  }
+
+  if(x.signum() == 0) {
+    return BigDecimal.ZERO;
+  }
+
+  if(x.signum() < 0 &&
+     (n % 2 == 0)) {
+
+    throw new IllegalArgumentException(
+      "Even root of negative number"
+    );
+  }
+
+  boolean negative =
+    x.signum() < 0;
+
+  BigDecimal a = x.abs();
+
+  int approxExp =
+    (a.precision() -
+     a.scale() - 1) / n;
+
+  BigDecimal guess =
+    BigDecimal.ONE
+    .scaleByPowerOfTen(approxExp);
+
+  if(guess.signum() == 0) {
+    guess = BigDecimal.ONE;
+  }
+
+  BigDecimal nBD =
+    BigDecimal.valueOf(n);
+
+  BigDecimal nMinus1BD =
+    BigDecimal.valueOf(n - 1);
+
+  BigDecimal prev;
+
+  BigDecimal tolerance =
+    BigDecimal.ONE
+    .scaleByPowerOfTen(
+      -(mc.getPrecision() - 10)
+    );
+
+  for(int i=0; i<200; i++) {
+
+    prev = guess;
+
+    BigDecimal denom =
+      powInt(
+        guess,
+        BigInteger.valueOf(n-1),
+        mc
+      );
+
+    BigDecimal term =
+      a.divide(denom, mc);
+
+    guess =
+      guess.multiply(
+        nMinus1BD,
+        mc
+      )
+      .add(term, mc)
+      .divide(nBD, mc);
+
+    if(
+      guess.subtract(prev, mc)
+      .abs()
+      .compareTo(tolerance)
+      <= 0
+    ) {
+      break;
+    }
+  }
+
+  return negative
+    ? guess.negate()
+    : guess;
+}
+
+// =====================================================
+// UTILITIES
+// =====================================================
+
+String decimalDigitsOnly(String s) {
+
+  if(s.startsWith("-")) {
+    s = s.substring(1);
+  }
+
+  int dot = s.indexOf('.');
+
+  if(dot < 0) return "";
+
+  return s.substring(dot+1);
+}
+
+String shortenForDisplay(
+  String s,
+  int maxLen
+) {
+
+  if(s.length() <= maxLen) {
+    return s;
+  }
+
+  return s.substring(0, maxLen) + "...";
+}
+
+// =====================================================
+// FRACTION PARSER
+// =====================================================
+
+class Fraction {
+
+  BigInteger num;
+  BigInteger den;
+
+  Fraction(
+    BigInteger n,
+    BigInteger d
+  ) {
+
+    if(d.signum() == 0) {
+
+      throw new IllegalArgumentException(
+        "Zero denominator"
+      );
+    }
+
+    if(d.signum() < 0) {
+
+      n = n.negate();
+      d = d.negate();
+    }
+
+    BigInteger g =
+      n.gcd(d);
+
+    if(!g.equals(BigInteger.ONE)) {
+
+      n = n.divide(g);
+      d = d.divide(g);
+    }
+
+    num = n;
+    den = d;
+  }
+}
+
+Fraction parseFraction(String s) {
+
+  s =
+    stripOuterParens(clean(s));
+
+  int slash =
+    findTopLevelSlash(s);
+
+  if(slash < 0) return null;
+
+  BigInteger n =
+    new BigInteger(
+      stripOuterParens(
+        clean(
+          s.substring(0, slash)
+        )
+      )
+    );
+
+  BigInteger d =
+    new BigInteger(
+      stripOuterParens(
+        clean(
+          s.substring(slash+1)
+        )
+      )
+    );
+
+  return new Fraction(n, d);
+}
+
+int findTopLevelSlash(String s) {
+
+  int depth = 0;
+
+  for(int i=0; i<s.length(); i++) {
+
+    char ch = s.charAt(i);
+
+    if(ch=='(') depth++;
+    else if(ch==')') depth--;
+
+    else if(ch=='/' &&
+            depth==0) {
+
+      return i;
+    }
+  }
+
+  return -1;
+}
