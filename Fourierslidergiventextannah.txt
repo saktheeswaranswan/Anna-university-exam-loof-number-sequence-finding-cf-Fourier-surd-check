@@ -1,0 +1,785 @@
+// ============================================================
+// APDE / PROCESSING ANDROID
+// INTERACTIVE FOURIER APPROXIMATION ENGINE
+// UNICODE CODE POINT MAPPING + SLIDER CONTROL + TAP TO COPY
+// EXACT REAL FOURIER SERIES WITH NYQUIST TERM
+// TABLE WITH TEXT, SUBSTITUTE VALUE, PREVIOUS INDEX
+// ROUND FIT TO INTEGER
+// ============================================================
+
+import android.app.Activity;
+import android.content.*;
+import android.view.*;
+import android.widget.*;
+import android.text.InputType;
+
+EditText inputBox;
+Button computeButton;
+SeekBar harmonicSlider;
+TextView sliderLabel;
+
+boolean uiCreated = false;
+
+// ============================================================
+// SETTINGS
+// ============================================================
+
+int MAX_INPUT_LEN = 512;
+int MAX_HARMONICS = 256;
+int TABLE_ROWS = 12;
+
+// ============================================================
+// SIGNAL / FOURIER DATA
+// ============================================================
+
+int[] codePoints;
+
+String[] symbolText;
+double[] signal;
+double[] reconstructed;
+int[] reconstructedInt;
+
+double[] termA;
+double[] termB;
+double[] termEnergy;
+
+int[] termK;
+boolean[] termNyquist;
+
+double[][] termWave;
+
+double mean = 0;
+
+int N = 0;
+int maxHarmonicTerms = 0;
+int termCount = 0;
+int currentTerms = 0;
+
+double signalMin = 0;
+double signalMax = 0;
+double nyquistCoeff = 0;
+
+String fourierSnippet = "";
+String summaryText = "";
+String statusText = "Ready";
+
+float scrollX = 0;
+
+// ============================================================
+
+void setup() {
+
+  fullScreen();
+  smooth();
+  textFont(createFont("SansSerif", 16));
+
+  createUI();
+}
+
+// ============================================================
+
+void draw() {
+
+  background(0);
+
+  fill(255);
+  textAlign(CENTER);
+  textSize(26);
+  text("Interactive Fourier Approximation", width/2, 36);
+
+  drawGraph();
+  drawSnippetBox();
+  drawSummary();
+  drawTable();
+
+  fill(0, 255, 0);
+  textAlign(LEFT);
+  textSize(14);
+  text(statusText, 20, height - 20);
+}
+
+// ============================================================
+// UI
+// ============================================================
+
+void createUI() {
+
+  if (uiCreated) return;
+  uiCreated = true;
+
+  final Activity act = getActivity();
+
+  act.runOnUiThread(new Runnable() {
+    public void run() {
+
+      LinearLayout layout = new LinearLayout(act);
+      layout.setOrientation(LinearLayout.VERTICAL);
+      layout.setPadding(20, 20, 20, 20);
+
+      inputBox = new EditText(act);
+      inputBox.setHint("Paste text here");
+      inputBox.setMinLines(4);
+      inputBox.setMaxLines(6);
+      inputBox.setTextSize(16);
+      inputBox.setInputType(
+        InputType.TYPE_CLASS_TEXT |
+        InputType.TYPE_TEXT_FLAG_MULTI_LINE
+      );
+      layout.addView(inputBox);
+
+      computeButton = new Button(act);
+      computeButton.setText("Compute Fourier Approximation");
+      computeButton.setOnClickListener(new View.OnClickListener() {
+        public void onClick(View v) {
+          computeFourier();
+        }
+      });
+      layout.addView(computeButton);
+
+      sliderLabel = new TextView(act);
+      sliderLabel.setText("Terms: 0");
+      sliderLabel.setTextColor(android.graphics.Color.WHITE);
+      sliderLabel.setTextSize(18);
+      layout.addView(sliderLabel);
+
+      harmonicSlider = new SeekBar(act);
+      harmonicSlider.setMax(1);
+      harmonicSlider.setProgress(0);
+      harmonicSlider.setOnSeekBarChangeListener(
+        new SeekBar.OnSeekBarChangeListener() {
+
+          public void onProgressChanged(
+            SeekBar seekBar,
+            int progress,
+            boolean fromUser
+          ) {
+            currentTerms = progress;
+            sliderLabel.setText("Terms: " + currentTerms);
+            rebuildApproximation();
+          }
+
+          public void onStartTrackingTouch(SeekBar seekBar) {}
+          public void onStopTrackingTouch(SeekBar seekBar) {}
+        }
+      );
+      layout.addView(harmonicSlider);
+
+      FrameLayout.LayoutParams params =
+        new FrameLayout.LayoutParams(
+          ViewGroup.LayoutParams.MATCH_PARENT,
+          ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+
+      params.gravity = Gravity.TOP;
+      act.addContentView(layout, params);
+    }
+  });
+}
+
+// ============================================================
+// UNICODE CODE POINT EXTRACTION
+// ============================================================
+
+int[] extractCodePoints(String s) {
+
+  if (s == null) return new int[0];
+
+  int count = s.codePointCount(0, s.length());
+  int[] out = new int[count];
+
+  int i = 0;
+  int idx = 0;
+
+  while (i < s.length()) {
+    int cp = s.codePointAt(i);
+    out[idx++] = cp;
+    i += Character.charCount(cp);
+  }
+
+  return out;
+}
+
+String safeSymbol(int cp) {
+  try {
+    return new String(Character.toChars(cp));
+  }
+  catch (Exception e) {
+    return "?";
+  }
+}
+
+// ============================================================
+// COMPUTE FOURIER
+// ============================================================
+
+void computeFourier() {
+
+  try {
+
+    String input = inputBox.getText().toString();
+
+    if (input == null || input.length() == 0) {
+      toast("Enter text");
+      return;
+    }
+
+    if (input.length() > MAX_INPUT_LEN) {
+      input = input.substring(0, MAX_INPUT_LEN);
+    }
+
+    codePoints = extractCodePoints(input);
+    N = codePoints.length;
+
+    if (N == 0) {
+      toast("Enter text");
+      return;
+    }
+
+    symbolText = new String[N];
+    signal = new double[N];
+    reconstructed = new double[N];
+    reconstructedInt = new int[N];
+
+    signalMin = 1e9;
+    signalMax = -1e9;
+    mean = 0;
+
+    for (int i = 0; i < N; i++) {
+      int cp = codePoints[i];
+      symbolText[i] = safeSymbol(cp);
+      signal[i] = (double)cp;
+      mean += signal[i];
+      if (signal[i] < signalMin) signalMin = signal[i];
+      if (signal[i] > signalMax) signalMax = signal[i];
+    }
+
+    mean /= N;
+
+    boolean evenN = (N % 2 == 0);
+
+    int maxPairK = evenN ? (N / 2 - 1) : ((N - 1) / 2);
+    if (maxPairK < 0) maxPairK = 0;
+
+    maxHarmonicTerms = evenN ? (N / 2) : ((N - 1) / 2);
+    if (maxHarmonicTerms < 0) maxHarmonicTerms = 0;
+
+    termCount = maxHarmonicTerms;
+
+    termA = new double[termCount + 1];
+    termB = new double[termCount + 1];
+    termEnergy = new double[termCount + 1];
+    termK = new int[termCount + 1];
+    termNyquist = new boolean[termCount + 1];
+
+    // ========================================================
+    // REAL FOURIER TERMS
+    // mean + pairs + optional nyquist
+    // ========================================================
+
+    int t = 0;
+
+    for (int k = 1; k <= maxPairK; k++) {
+
+      double sumC = 0.0;
+      double sumS = 0.0;
+
+      for (int n = 0; n < N; n++) {
+
+        double ang = TWO_PI * k * n / (double)N;
+
+        sumC += signal[n] * Math.cos(ang);
+        sumS += signal[n] * Math.sin(ang);
+      }
+
+      double a = (2.0 / N) * sumC;
+      double b = (2.0 / N) * sumS;
+
+      termA[++t] = a;
+      termB[t] = b;
+      termEnergy[t] = a * a + b * b;
+      termK[t] = k;
+      termNyquist[t] = false;
+    }
+
+    nyquistCoeff = 0;
+
+    if (evenN) {
+
+      double sumNy = 0.0;
+
+      for (int n = 0; n < N; n++) {
+        sumNy += signal[n] * ((n % 2 == 0) ? 1.0 : -1.0);
+      }
+
+      nyquistCoeff = sumNy / N;
+
+      termA[++t] = nyquistCoeff;
+      termB[t] = 0.0;
+      termEnergy[t] = nyquistCoeff * nyquistCoeff;
+      termK[t] = N / 2;
+      termNyquist[t] = true;
+    }
+
+    termCount = t;
+
+    // ========================================================
+    // SORT TERMS BY ENERGY DESCENDING
+    // ========================================================
+
+    for (int i = 1; i < termCount; i++) {
+      for (int j = i + 1; j <= termCount; j++) {
+        if (termEnergy[j] > termEnergy[i]) {
+
+          double te = termEnergy[i];
+          termEnergy[i] = termEnergy[j];
+          termEnergy[j] = te;
+
+          double ta = termA[i];
+          termA[i] = termA[j];
+          termA[j] = ta;
+
+          double tb = termB[i];
+          termB[i] = termB[j];
+          termB[j] = tb;
+
+          int tk = termK[i];
+          termK[i] = termK[j];
+          termK[j] = tk;
+
+          boolean tn = termNyquist[i];
+          termNyquist[i] = termNyquist[j];
+          termNyquist[j] = tn;
+        }
+      }
+    }
+
+    currentTerms = termCount;
+
+    harmonicSlider.setMax(termCount);
+    harmonicSlider.setProgress(currentTerms);
+    sliderLabel.setText("Terms: " + currentTerms);
+
+    buildWaveCache();
+    rebuildApproximation();
+
+    statusText = "Fourier approximation ready";
+  }
+
+  catch (Exception e) {
+    statusText = "ERROR: " + e.toString();
+    println(e);
+  }
+}
+
+// ============================================================
+// WAVE CACHE
+// ============================================================
+
+void buildWaveCache() {
+
+  if (signal == null || N <= 0 || termCount <= 0) {
+    termWave = null;
+    return;
+  }
+
+  termWave = new double[termCount + 1][N];
+
+  for (int t = 1; t <= termCount; t++) {
+
+    int k = termK[t];
+
+    for (int n = 0; n < N; n++) {
+
+      if (termNyquist[t]) {
+        termWave[t][n] = termA[t] * Math.cos(Math.PI * n);
+      }
+      else {
+        double ang = TWO_PI * k * n / (double)N;
+        termWave[t][n] =
+          termA[t] * Math.cos(ang) +
+          termB[t] * Math.sin(ang);
+      }
+    }
+  }
+}
+
+// ============================================================
+// REBUILD APPROXIMATION
+// ============================================================
+
+void rebuildApproximation() {
+
+  if (signal == null || termWave == null) return;
+
+  if (currentTerms < 0) currentTerms = 0;
+  if (currentTerms > termCount) currentTerms = termCount;
+
+  for (int n = 0; n < N; n++) {
+
+    double y = mean;
+
+    for (int t = 1; t <= currentTerms; t++) {
+      y += termWave[t][n];
+    }
+
+    reconstructed[n] = y;
+    reconstructedInt[n] = round((float)y);
+  }
+
+  buildSnippet();
+  buildSummary();
+}
+
+// ============================================================
+// BUILD FOURIER SNIPPET
+// ============================================================
+
+void buildSnippet() {
+
+  if (signal == null) {
+    fourierSnippet = "";
+    return;
+  }
+
+  StringBuilder sb = new StringBuilder();
+
+  sb.append("f(n)=");
+  sb.append(nf((float)mean, 1, 8));
+
+  for (int t = 1; t <= currentTerms; t++) {
+
+    sb.append(" + ");
+
+    if (termNyquist[t]) {
+
+      sb.append("(");
+      sb.append(nf((float)termA[t], 1, 8));
+      sb.append("*cos(πn)");
+      sb.append(")");
+    }
+    else {
+
+      sb.append("(");
+
+      sb.append(nf((float)termA[t], 1, 8));
+      sb.append("*cos(2π*");
+      sb.append(termK[t]);
+      sb.append("*n/");
+      sb.append(N);
+      sb.append(")");
+
+      sb.append(" + ");
+
+      sb.append(nf((float)termB[t], 1, 8));
+      sb.append("*sin(2π*");
+      sb.append(termK[t]);
+      sb.append("*n/");
+      sb.append(N);
+      sb.append(")");
+
+      sb.append(")");
+    }
+  }
+
+  fourierSnippet = sb.toString();
+}
+
+// ============================================================
+// BUILD SUMMARY
+// ============================================================
+
+void buildSummary() {
+
+  if (signal == null) return;
+
+  double mse = 0;
+  double mae = 0;
+  double maxErr = 0;
+
+  for (int i = 0; i < N; i++) {
+
+    double err = signal[i] - reconstructed[i];
+
+    mse += err * err;
+    mae += Math.abs(err);
+
+    if (Math.abs(err) > maxErr) {
+      maxErr = Math.abs(err);
+    }
+  }
+
+  mse /= N;
+  mae /= N;
+
+  double signalRange = signalMax - signalMin;
+  double rmse = Math.sqrt(mse);
+  double nrmse = (signalRange == 0) ? 0 : rmse / signalRange;
+
+  double compressedCount = 1 + 2 * currentTerms;
+  double compressionRatio = (compressedCount > 0) ? ((double)N / compressedCount) : 0;
+
+  summaryText =
+    "Signal Length = " + N +
+    "\nDisplayed Terms = " + currentTerms +
+    "\nCompression Ratio = " + nf((float)compressionRatio, 1, 8) + "x" +
+    "\nRMSE = " + nf((float)rmse, 1, 12) +
+    "\nNRMSE = " + nf((float)nrmse, 1, 12) +
+    "\nMSE = " + nf((float)mse, 1, 12) +
+    "\nMAE = " + nf((float)mae, 1, 12) +
+    "\nMax Error = " + nf((float)maxErr, 1, 12);
+}
+
+// ============================================================
+// GRAPH
+// ============================================================
+
+void drawGraph() {
+
+  if (signal == null) return;
+
+  float x = 20;
+  float y = 230;
+  float w = width - 40;
+  float h = 220;
+
+  fill(20);
+  stroke(80);
+  rect(x, y, w, h, 20);
+
+  float px = x + 20;
+  float py = y + 20;
+  float pw = w - 40;
+  float ph = h - 40;
+
+  strokeWeight(2);
+
+  // ORIGINAL
+  stroke(255, 0, 0);
+  for (int i = 1; i < N; i++) {
+    line(
+      map(i - 1, 0, N - 1, px, px + pw),
+      mapValue(signal[i - 1], py, ph),
+      map(i, 0, N - 1, px, px + pw),
+      mapValue(signal[i], py, ph)
+    );
+  }
+
+  // FOURIER APPROXIMATION
+  stroke(0, 255, 255);
+  for (int i = 1; i < N; i++) {
+    line(
+      map(i - 1, 0, N - 1, px, px + pw),
+      mapValue(reconstructed[i - 1], py, ph),
+      map(i, 0, N - 1, px, px + pw),
+      mapValue(reconstructed[i], py, ph)
+    );
+  }
+}
+
+// ============================================================
+// SNIPPET BOX
+// ============================================================
+
+void drawSnippetBox() {
+
+  int x = 20;
+  int y = 470;
+  int w = width - 40;
+  int h = 150;
+
+  fill(20);
+  stroke(80);
+  rect(x, y, w, h, 20);
+
+  fill(255, 255, 0);
+  textAlign(LEFT);
+  textSize(18);
+
+  text(
+    "f(n) Fourier Approximation (Tap To Copy)",
+    x + 15,
+    y + 25
+  );
+
+  pushMatrix();
+  translate(x + 15 - scrollX, y + 60);
+
+  fill(255);
+  textSize(13);
+
+  text(
+    fourierSnippet,
+    0,
+    0,
+    10000,
+    400
+  );
+
+  popMatrix();
+}
+
+// ============================================================
+// SUMMARY
+// ============================================================
+
+void drawSummary() {
+
+  fill(255);
+  textAlign(LEFT);
+  textSize(14);
+
+  text(
+    summaryText,
+    20,
+    height - 255
+  );
+}
+
+// ============================================================
+// TABLE
+// ============================================================
+
+void drawTable() {
+
+  if (signal == null || reconstructed == null || codePoints == null) return;
+
+  int rows = min(TABLE_ROWS, N);
+  int start = max(0, N - rows);
+
+  int x = 20;
+  int y = height - 190;
+  int w = width - 40;
+  int h = 170;
+
+  fill(18);
+  stroke(80);
+  rect(x, y, w, h, 20);
+
+  fill(255, 255, 0);
+  textAlign(LEFT);
+  textSize(15);
+  text("Prev   Idx   Text   Substitute   Fit(int)   Err", x + 15, y + 22);
+
+  fill(0, 255, 120);
+  textSize(12);
+
+  for (int i = 0; i < rows; i++) {
+
+    int idx = start + i;
+    int prev = idx - 1;
+
+    int yy = y + 45 + i * 12;
+
+    int cp = codePoints[idx];
+    String sym = symbolText[idx];
+    int fitInt = reconstructedInt[idx];
+    double err = Math.abs(signal[idx] - reconstructed[idx]);
+
+    String line =
+      nf(prev, 1, 0) + "    " +
+      nf(idx, 1, 0) + "    " +
+      sym + "     " +
+      nf(cp, 1, 0) + "     " +
+      nf(fitInt, 1, 0) + "     " +
+      nf((float)err, 1, 12);
+
+    text(line, x + 15, yy);
+  }
+}
+
+// ============================================================
+// MAP VALUE
+// ============================================================
+
+float mapValue(double v, float py, float ph) {
+
+  if (signalMax == signalMin) {
+    return py + ph / 2;
+  }
+
+  return map(
+    (float)v,
+    (float)signalMin,
+    (float)signalMax,
+    py + ph,
+    py
+  );
+}
+
+// ============================================================
+// TOUCH
+// ============================================================
+
+void mousePressed() {
+
+  if (
+    mouseX > 20 &&
+    mouseX < width - 20 &&
+    mouseY > 470 &&
+    mouseY < 620
+  ) {
+    copyText(fourierSnippet);
+    toast("f(n) copied");
+  }
+}
+
+// ============================================================
+// DRAG TO SCROLL
+// ============================================================
+
+void mouseDragged() {
+
+  scrollX -= (mouseX - pmouseX);
+
+  scrollX = constrain(
+    scrollX,
+    0,
+    max(
+      0,
+      textWidth(fourierSnippet) - (width - 80)
+    )
+  );
+}
+
+// ============================================================
+// COPY
+// ============================================================
+
+void copyText(String s) {
+
+  try {
+
+    Activity act = getActivity();
+
+    ClipboardManager clipboard =
+      (ClipboardManager) act.getSystemService(Context.CLIPBOARD_SERVICE);
+
+    ClipData clip =
+      ClipData.newPlainText("Fourier", s);
+
+    clipboard.setPrimaryClip(clip);
+  }
+
+  catch (Exception e) {
+    println(e);
+  }
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+
+void toast(final String s) {
+
+  final Activity act = getActivity();
+
+  act.runOnUiThread(new Runnable() {
+    public void run() {
+      Toast.makeText(
+        act,
+        s,
+        Toast.LENGTH_SHORT
+      ).show();
+    }
+  });
+}
