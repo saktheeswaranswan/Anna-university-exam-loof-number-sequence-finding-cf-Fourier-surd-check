@@ -1,0 +1,415 @@
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+
+// ============================================================
+// TRUE FOURIER SYMBOLIC REGRESSION SYSTEM
+// FULL-HARMONIC FOURIER REGRESSION
+// DOUBLE PRECISION
+// INTEGER FINAL OUTPUT
+// APDE / PROCESSING ANDROID
+// ============================================================
+
+String inputText =
+  "The EUROCALL Review Volume 25 No 2 September 2017 " +
+  "Research paper " +
+  "A look at advanced learners use of mobile devices for English language study Insights from interview data " +
+  "Mariusz Kruk University of Zielona Gora Poland " +
+  "Abstract " +
+  "The paper discusses the results of a study which explored advanced learners of English engagement with their mobile devices " +
+  "to develop learning experiences that meet their needs and goals as foreign language learners " +
+  "The data were collected from 20 students by means of a semi structured interview " +
+  "The gathered data were subjected to qualitative and quantitative analysis " +
+  "The results of the study demonstrated that on the one hand some subjects manifested heightened awareness relating " +
+  "to the advantageous role of mobile devices in their learning endeavors " +
+  "Their ability to reach for suitable tools and retrieve necessary information so as to achieve their goals " +
+  "meet their needs and adjust their learning of English to their personal learning styles " +
+  "And on the other a rather intuitive and ad hoc use of their mobile devices in the classroom " +
+  "Keywords learner autonomy mobile devices advanced EFL learners learning English " +
+  "Introduction " +
+  "Mobile devices smartphones and tablet computers in particular have generated a lot of interest among researchers in recent years " +
+  "This is because the opportunities these new technologies may offer individualized learning the variety of mobile apps available " +
+  "easy access to the internet and the fact that they are increasingly more common among learners " +
+  "make them an important and potentially useful addition to formal and informal language learning " +
+  "According to Benson there has always been a connection between educational technologies and learner autonomy " +
+  "to the extent that they have often been intended for independent practice " +
+  "It should be noted however that this link and future enquiry and practice into technology mediated learner autonomy " +
+  "will need to be increasingly aligned to the tools settings and activities that are of significance to language learners " +
+  "Autonomy in second and foreign language learning and teaching has been the focus of attention for many researchers and practitioners " +
+  "Holec defined autonomy as the ability to take charge of ones own learning " +
+  "Little described autonomy as a capacity for detachment critical reflection decision making and independent action " +
+  "Autonomous learners possess ability willingness motivation and confidence " +
+  "Mobile technology and smartphones can support language learners by granting access to numerous language resources whenever and wherever needed " +
+  "Language learners may use chunks of spare time for language practice searching vocabulary in context or interactions on social media " +
+  "Mobile devices allow learners to take control of their learning direct it and engage in language activities that meet their individual needs and goals " +
+  "Researchers investigated mobile learning language learning apps learner autonomy collaborative learning and mobile pedagogy " +
+  "Participants in this study were 20 Polish university students of English philology " +
+  "The participants represented proficiency levels between B1 and C2 " +
+  "Data were gathered by means of semi structured interviews " +
+  "The interview questions focused on mobile device usage reasons apps language learning and study habits " +
+  "The gathered data were subjected to qualitative and quantitative analysis " +
+  "The analysis yielded thematic categories including usage reasons tools mobile encounters language practiced and study performance " +
+  "Most students used smartphones for English study " +
+  "Students used dictionaries translation apps podcasts YouTube WhatsApp TED talks and online newspapers " +
+  "Vocabulary learning was the most frequent activity " +
+  "Some students practiced pronunciation reading listening grammar and speaking " +
+  "Students reported convenience speed accessibility portability and organization as major benefits " +
+  "Many learners used mobile devices more frequently outside the classroom " +
+  "Some learners organized regular informal learning sessions " +
+  "Several learners reported that mobile devices increased study time and improved efficiency " +
+  "Some learners still considered themselves inexperienced mobile learners " +
+  "Teachers rarely integrated mobile learning activities into classroom instruction " +
+  "The findings suggested that mobile devices positively supported autonomous English language learning " +
+  "Teacher guidance and mobile pedagogy training were recommended " +
+  "The study concluded that greater teacher involvement could increase learner engagement independence and technology mediated autonomy " +
+  "References Benson Holec Little Reinders Kukulska Hulme Stockwell and many others " +
+  "End of research paper";
+
+// ============================================================
+// DATA
+// ============================================================
+
+double[] signal;
+double[] approxFloat;
+int[] approxInt;
+
+double[] aCos;     // cosine coefficients
+double[] bSin;     // sine coefficients
+
+int N;
+int maxK;
+boolean evenN;
+double nyquistCoeff = 0.0;
+
+double meanValue = 0.0;
+double signalMin = Double.POSITIVE_INFINITY;
+double signalMax = Double.NEGATIVE_INFINITY;
+
+String equationText = "";
+String summaryText = "";
+String copyMessage = "";
+float equationScrollX = 0;
+
+ClipboardManager clipboard;
+
+// ============================================================
+// SETTINGS
+// ============================================================
+
+// Keep ALL harmonics for near-machine-precision reconstruction.
+// If you prune harmonics, error will increase.
+boolean USE_ALL_HARMONICS = true;
+
+// Show integer output on graph/table.
+boolean SHOW_INTEGER_OUTPUT = true;
+
+// ============================================================
+
+void setup() {
+  fullScreen();
+  smooth();
+  textFont(createFont("SansSerif", 16));
+  clipboard = (ClipboardManager) getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+  runFourierRegression();
+}
+
+void draw() {
+  background(0);
+  drawTitle();
+  drawEquationBox();
+  drawGraph();
+  drawSummary();
+  drawTable();
+}
+
+// ============================================================
+// FOURIER REGRESSION
+// ============================================================
+
+void runFourierRegression() {
+
+  N = inputText.length();
+  evenN = (N % 2 == 0);
+
+  signal = new double[N];
+  approxFloat = new double[N];
+  approxInt = new int[N];
+
+  // Fourier series storage
+  aCos = new double[N];
+  bSin = new double[N];
+
+  // TEXT -> NUMERIC SIGNAL
+  for (int i = 0; i < N; i++) {
+    signal[i] = (double) inputText.charAt(i);
+    if (signal[i] < signalMin) signalMin = signal[i];
+    if (signal[i] > signalMax) signalMax = signal[i];
+    meanValue += signal[i];
+  }
+  meanValue /= N;
+
+  // NUMBER OF HARMONICS
+  // For exact discrete reconstruction:
+  // odd N  -> k = 1..(N-1)/2
+  // even N -> k = 1..N/2-1 plus Nyquist term
+  maxK = evenN ? (N / 2 - 1) : (N / 2);
+
+  // ========================================================
+  // FOURIER REGRESSION COEFFICIENTS
+  // ========================================================
+  // This is the orthogonal Fourier-basis regression fit.
+  // It reconstructs the sampled signal on the same grid.
+  // ========================================================
+
+  for (int k = 1; k <= maxK; k++) {
+
+    double sumCos = 0.0;
+    double sumSin = 0.0;
+
+    for (int n = 0; n < N; n++) {
+      double angle = 2.0 * Math.PI * k * n / N;
+      sumCos += signal[n] * Math.cos(angle);
+      sumSin += signal[n] * Math.sin(angle);
+    }
+
+    aCos[k] = (2.0 / N) * sumCos;
+    bSin[k] = (2.0 / N) * sumSin;
+  }
+
+  // Nyquist term for even-length signals
+  if (evenN) {
+    double sumNyq = 0.0;
+    int kNyq = N / 2;
+    for (int n = 0; n < N; n++) {
+      double angle = Math.PI * n; // cos(pi*n)
+      sumNyq += signal[n] * Math.cos(angle);
+    }
+    nyquistCoeff = (1.0 / N) * sumNyq;
+  }
+
+  // ========================================================
+  // RECONSTRUCTION
+  // ========================================================
+
+  for (int n = 0; n < N; n++) {
+
+    double value = meanValue;
+
+    for (int k = 1; k <= maxK; k++) {
+      double angle = 2.0 * Math.PI * k * n / N;
+      value += aCos[k] * Math.cos(angle) + bSin[k] * Math.sin(angle);
+    }
+
+    if (evenN) {
+      value += nyquistCoeff * Math.cos(Math.PI * n);
+    }
+
+    approxFloat[n] = value;
+    approxInt[n] = round((float) value);
+  }
+
+  // ========================================================
+  // EQUATION STRING
+  // ========================================================
+
+  StringBuilder eq = new StringBuilder();
+  eq.append("y[n] = Round(");
+  eq.append(nf((float)meanValue, 1, 10));
+
+  for (int k = 1; k <= maxK; k++) {
+    if (USE_ALL_HARMONICS || Math.abs(aCos[k]) > 1e-12 || Math.abs(bSin[k]) > 1e-12) {
+      eq.append(" + ");
+      eq.append(nf((float)aCos[k], 1, 10));
+      eq.append("cos(2π").append(k).append("n/").append(N).append(")");
+      eq.append(" + ");
+      eq.append(nf((float)bSin[k], 1, 10));
+      eq.append("sin(2π").append(k).append("n/").append(N).append(")");
+    }
+  }
+
+  if (evenN) {
+    eq.append(" + ");
+    eq.append(nf((float)nyquistCoeff, 1, 10));
+    eq.append("cos(πn)");
+  }
+
+  eq.append(")");
+  equationText = eq.toString();
+
+  // ========================================================
+  // ERROR ANALYSIS
+  // ========================================================
+
+  double mseFloat = 0.0;
+  double maeFloat = 0.0;
+  double maxErrFloat = 0.0;
+
+  double mseInt = 0.0;
+  double maeInt = 0.0;
+  double maxErrInt = 0.0;
+
+  for (int i = 0; i < N; i++) {
+    double errF = Math.abs(signal[i] - approxFloat[i]);
+    mseFloat += errF * errF;
+    maeFloat += errF;
+    if (errF > maxErrFloat) maxErrFloat = errF;
+
+    double errI = Math.abs(signal[i] - approxInt[i]);
+    mseInt += errI * errI;
+    maeInt += errI;
+    if (errI > maxErrInt) maxErrInt = errI;
+  }
+
+  mseFloat /= N;
+  maeFloat /= N;
+
+  mseInt /= N;
+  maeInt /= N;
+
+  summaryText =
+    "N = " + N +
+    "    Full Harmonics = YES" +
+    "    Float MSE = " + nf((float)mseFloat, 1, 10) +
+    "    Float MaxErr = " + nf((float)maxErrFloat, 1, 10) +
+    "    Int MSE = " + nf((float)mseInt, 1, 6) +
+    "    Int MaxErr = " + nf((float)maxErrInt, 1, 2);
+}
+
+// ============================================================
+// DRAW UI
+// ============================================================
+
+void drawTitle() {
+  fill(255);
+  textAlign(CENTER);
+  textSize(26);
+  text("TRUE FOURIER SYMBOLIC REGRESSION", width / 2, 38);
+
+  fill(0, 255, 120);
+  textSize(14);
+  text("Full-harmonic double-precision regression on text signal", width / 2, 62);
+}
+
+void drawEquationBox() {
+  fill(15);
+  noStroke();
+  rect(20, 80, width - 40, 220, 20);
+
+  fill(0, 255, 255);
+  textAlign(LEFT);
+  textSize(18);
+  text("FOURIER REGRESSION EQUATION", 40, 112);
+
+  pushMatrix();
+  translate(40 - equationScrollX, 145);
+  fill(255);
+  textSize(10);
+  text(equationText, 0, 0, 24000, 140);
+  popMatrix();
+
+  fill(255, 200, 0);
+  textSize(12);
+  text("Tap equation box to copy", 40, 285);
+
+  fill(0, 255, 120);
+  text(copyMessage, 240, 285);
+}
+
+void drawGraph() {
+  float gx = 40;
+  float gy = 330;
+  float gw = width - 80;
+  float gh = 430;
+
+  fill(10);
+  stroke(255);
+  rect(gx, gy, gw, gh);
+
+  if (N < 2) return;
+
+  // Original
+  stroke(255, 0, 0);
+  strokeWeight(1);
+  for (int i = 1; i < N; i++) {
+    float x1 = map(i - 1, 0, N - 1, gx + 10, gx + gw - 10);
+    float y1 = map((float)signal[i - 1], (float)signalMin, (float)signalMax, gy + gh - 10, gy + 10);
+    float x2 = map(i, 0, N - 1, gx + 10, gx + gw - 10);
+    float y2 = map((float)signal[i], (float)signalMin, (float)signalMax, gy + gh - 10, gy + 10);
+    line(x1, y1, x2, y2);
+  }
+
+  // Regression approximation
+  stroke(0, 255, 255);
+  strokeWeight(2);
+  for (int i = 1; i < N; i++) {
+    float x1 = map(i - 1, 0, N - 1, gx + 10, gx + gw - 10);
+    float y1 = map((float)approxFloat[i - 1], (float)signalMin, (float)signalMax, gy + gh - 10, gy + 10);
+    float x2 = map(i, 0, N - 1, gx + 10, gx + gw - 10);
+    float y2 = map((float)approxFloat[i], (float)signalMin, (float)signalMax, gy + gh - 10, gy + 10);
+    line(x1, y1, x2, y2);
+  }
+
+  fill(255, 0, 0);
+  textSize(12);
+  text("Original Signal", gx + 20, gy + 20);
+
+  fill(0, 255, 255);
+  text("Fourier Regression", gx + 170, gy + 20);
+}
+
+void drawSummary() {
+  fill(255, 200, 0);
+  textSize(16);
+  textAlign(LEFT);
+  text("REGRESSION SUMMARY", 40, height - 92);
+
+  fill(255);
+  textSize(12);
+  text(summaryText, 40, height - 62);
+}
+
+void drawTable() {
+  float tx = width - 420;
+  float ty = 110;
+
+  fill(255, 200, 0);
+  textSize(14);
+  text("ERROR TABLE", tx, ty);
+
+  fill(0, 255, 120);
+  textSize(10);
+  text("X", tx, ty + 25);
+  text("Y", tx + 55, ty + 25);
+  text("REG", tx + 145, ty + 25);
+  text("ERR", tx + 255, ty + 25);
+
+  fill(255);
+  int rows = min(25, N);
+
+  for (int i = 0; i < rows; i++) {
+    float yy = ty + 50 + i * 14;
+    double err = Math.abs(signal[i] - approxInt[i]);
+
+    text(i, tx, yy);
+    text(nf((float)signal[i], 1, 0), tx + 55, yy);
+    text(approxInt[i], tx + 145, yy);
+    text(nf((float)err, 1, 2), tx + 255, yy);
+  }
+}
+
+// ============================================================
+// INTERACTION
+// ============================================================
+
+void mousePressed() {
+  if (mouseX > 20 && mouseX < width - 20 && mouseY > 80 && mouseY < 300) {
+    ClipData clip = ClipData.newPlainText("FourierEquation", equationText);
+    clipboard.setPrimaryClip(clip);
+    copyMessage = "Equation copied!";
+  }
+}
+
+void mouseDragged() {
+  equationScrollX -= (mouseX - pmouseX);
+  equationScrollX = constrain(equationScrollX, 0, 25000);
+}
